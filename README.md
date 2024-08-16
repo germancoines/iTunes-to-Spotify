@@ -12,7 +12,7 @@
 
 **Where?** [https://itunes-to-spotify-exporter.herokuapp.com/](https://itunes-to-spotify-exporter.herokuapp.com/)
 
-**When?** Last updated on 8th Jan 2017.
+**When?** Last updated on 16th of Aug 2024.
 
 **How?**
 

@@ -4,6 +4,8 @@ function Track(id, title, artist, album) {
 	this._artist = artist;
 	this._album = album;
 	this._spotifyUri = null;
+	this._notFound = false;
+	this._error = false;
 }
 
 // returns an encoded string for the search endpoint

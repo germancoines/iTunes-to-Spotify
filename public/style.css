@@ -10,6 +10,14 @@
 	color: green;
 }
 
+.notfound {
+	color: purple;
+}
+
+.error {
+	color: red;
+}
+
 .progress {
 	display: none;
 }

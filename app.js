@@ -1,3 +1,5 @@
+var dotenv = require('dotenv');
+dotenv.config({ path: './config.env' });
 var express = require('express');
 var request = require('request');
 var querystring = require('querystring');
@@ -11,6 +13,9 @@ var app = express();
 var server = require('http').createServer(app);
 var io = require('socket.io')(server);
 
+const fs = require('fs');
+const csvStringify = require('csv-stringify');
+
 app.use(express.static(__dirname + '/public')).use(cookieParser());
 app.use(bodyParser.json());
 
@@ -21,6 +26,8 @@ var parser;
 var client_id = process.env.client_id;
 var client_secret = process.env.client_secret;
 var redirect_uri = process.env.redirect_uri;
+var refresh_token = '';
+var access_token = '';
 
 io.on('connection', function(client) {
   console.log(client.id);
@@ -67,7 +74,7 @@ app.get('/callback', function(req, res) {
         grant_type: 'authorization_code'
       },
       headers: {
-        'Authorization': 'Basic ' + (new Buffer(client_id + ':' + client_secret).toString('base64'))
+        'Authorization': 'Basic ' + (new Buffer.from(client_id + ':' + client_secret).toString('base64'))
       },
       json: true
     };
@@ -75,8 +82,8 @@ app.get('/callback', function(req, res) {
     request.post(authOptions, function(error, response, body) {
       if (!error && response.statusCode === 200) {
 
-        var access_token = body.access_token;
-        var refresh_token = body.refresh_token;
+        access_token = body.access_token;
+        refresh_token = body.refresh_token;
 
         var options = {
           url: 'https://api.spotify.com/v1/me',
@@ -84,17 +91,18 @@ app.get('/callback', function(req, res) {
           json: true
         };
 
+        var userInfo = null;
         // use the access token to access the Spotify Web API
         request.get(options, function(error, response, body) {
           console.log(body);
+          userInfo = body;
+          res.redirect('/#' +
+            querystring.stringify({
+              user_id: userInfo.id,
+              display_name: userInfo.display_name
+            }));
         });
 
-        // we can also pass the token to the browser to make requests from there
-        res.redirect('/#' +
-          querystring.stringify({
-            access_token: access_token,
-            refresh_token: refresh_token
-          }));
       } else {
         res.redirect('/#' +
           querystring.stringify({
@@ -108,11 +116,12 @@ app.get('/callback', function(req, res) {
 
 app.get('/refresh_token', function(req, res) {
 
-  // requesting access token from refresh token
-  var refresh_token = req.query.refresh_token;
   var authOptions = {
     url: 'https://accounts.spotify.com/api/token',
-    headers: { 'Authorization': 'Basic ' + (new Buffer(client_id + ':' + client_secret).toString('base64')) },
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      'Authorization': 'Basic ' + (new Buffer.from(client_id + ':' + client_secret).toString('base64')) 
+    },
     form: {
       grant_type: 'refresh_token',
       refresh_token: refresh_token
@@ -122,7 +131,7 @@ app.get('/refresh_token', function(req, res) {
 
   request.post(authOptions, function(error, response, body) {
     if (!error && response.statusCode === 200) {
-      var access_token = body.access_token;
+      access_token = body.access_token;
       res.send({
         'access_token': access_token
       });
@@ -179,7 +188,6 @@ app.post('/:playlist/tracks', function(req, res) {
 app.post('/:playlist/export', function(req, res) {
   var playlist = parser.getPlaylistByName(req.params.playlist);
   var user = req.body.user;
-  var accessToken = req.body.access_token;
   var tracks = [];
 
   // consts are empirical, documentation doesn't state
@@ -194,12 +202,13 @@ app.post('/:playlist/export', function(req, res) {
   // create playlist
   var authOptions = {
     url: 'https://api.spotify.com/v1/users/' + user + '/playlists',
-    headers: { 'Authorization': 'Bearer ' + accessToken },
+    headers: { 'Authorization': 'Bearer ' + access_token },
     body: JSON.stringify({name: playlist._name, public: false}),
     json: true
   };
 
-  request.post(authOptions, function(error, response, body) {
+  request.post(authOptions, async function(error, response, body) {
+
     if (!error && response.statusCode == 201) {
 
       // playlist created OK, send status update
@@ -225,7 +234,7 @@ app.post('/:playlist/export', function(req, res) {
 
       var loopChunks = function(chunk) {
         console.log('chunk ', x + 1, ' request started');
-        addTracksToPlaylist(chunks[x], user, playlistId, accessToken, function(err, result) {
+        addTracksToPlaylist(chunks[x], user, playlistId, playlist._name, function(err, result) {
           if(err) {
             console.log('Error adding tracks: ', err, result);
             res.sendStatus(400);
@@ -262,11 +271,13 @@ app.post('/:playlist/export', function(req, res) {
 });
 
 
-function addTracksToPlaylist(trackIds, user, playlistId, accessToken, callback) {
+var nonExportedCsvData = [
+  ['Artist', 'Album', 'Title', 'Error']
+];
+
+function addTracksToPlaylist(trackIds, user, playlistId, playlistName, callback) {
   var searchEndpoint = 'https://api.spotify.com/v1/search?q=';
-  var getTrackAuth = {
-    'Authorization': 'Bearer ' + accessToken
-  };
+  
   var tracksToAdd = [];
 
   // use promises so we can wait until all track search requests are complete
@@ -277,7 +288,12 @@ function addTracksToPlaylist(trackIds, user, playlistId, accessToken, callback) 
       var track = parser.getTrackById(id);
       var url = searchEndpoint + track.toString() + '&type=track&limit=1';
 
-      request.get(url, getTrackAuth, function(error, response, body) {
+      var authOptionsAddTracks = {
+        url: url,
+        headers: { 'Authorization': 'Bearer ' + access_token },
+      };
+
+      request.get(authOptionsAddTracks, function(error, response, body) {
         if (!error && response.statusCode == 200) {
           try {
             var jsonResponse = JSON.parse(body);
@@ -286,16 +302,23 @@ function addTracksToPlaylist(trackIds, user, playlistId, accessToken, callback) 
               if(jsonResponse.tracks.items.length > 0) {
                 track._spotifyUri = jsonResponse.tracks.items[0].uri;
                 tracksToAdd.push(track._spotifyUri);
+              } else {
+                console.log('[NOT FOUND]: Track Id ' + track._id + ', Title ' + track._title);
+                nonExportedCsvData.push([track._artist, track._album, track._title, false]);
+                track._notFound = true;
               }
             }
 
-          } catch(e) {
-            console.log('Error parsing response: ', e);
-            reject('Error parsing response: ' + e);
+          } catch {
+            console.log('Error parsing response');
+            track._error = true;
+            nonExportedCsvData.push([track._artist, track._album, track._title, true]);
+            // reject('Error parsing response: ' + e);
           }
         } else {
           console.log('Get Track Error: ', body);
-          reject('Get Track Error: ' + body);
+          // reject('Get Track Error: ' + body);
+          track._error = true;
         }
 
         resolve(track);
@@ -311,7 +334,7 @@ function addTracksToPlaylist(trackIds, user, playlistId, accessToken, callback) 
     } else {
       var playlistOptions = {
         url: 'https://api.spotify.com/v1/users/' + user + '/playlists/' + playlistId + '/tracks',
-        headers: { 'Authorization': 'Bearer ' + accessToken },
+        headers: { 'Authorization': 'Bearer ' + access_token },
         body: JSON.stringify({ uris: tracksToAdd }),
         json: true
       };
@@ -323,6 +346,16 @@ function addTracksToPlaylist(trackIds, user, playlistId, accessToken, callback) 
           console.log('Add tracks to playlist error: ', body);
           callback('Add tracks to playlist error', null);
         }
+
+        csvStringify.stringify(nonExportedCsvData, (err, output) => {
+          if (err) {
+              console.log('[ERROR] creating export results report');
+              return;
+          }
+          
+          fs.appendFileSync('C:\\Users\\germa\\' + playlistName + '.csv', output);
+          nonExportedCsvData = [];
+        });
       });
     }
   });
@@ -344,6 +377,10 @@ var generateRandomString = function(length) {
   return text;
 };
 
+//every 50 min request new access_token
+setInterval(async function(){  
+    await fetch("http://127.0.0.1:8888/refresh_token?refresh_token=" + refresh_token );
+}, 3000000);
 
 console.log('Listening on 8888');
 // listen on Heroku's dynamically assigned port in production,

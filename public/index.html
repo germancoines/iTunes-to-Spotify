@@ -74,20 +74,17 @@
         {{/if}}
       </h2>
       <div class="media">
-        <div class="pull-left">
-          <img class="media-object" width="150" src="{{images.0.url}}" />
-        </div>
         <div class="media-body">
           <dl class="dl-horizontal">
             {{#if display_name}}
               <dt>Display name</dt><dd class="clearfix">{{display_name}}</dd>
             {{/if}}
             <dt>Id</dt><dd>{{id}}</dd>
-            <dt>Email</dt><dd>{{email}}</dd>
+            <!-- <dt>Email</dt><dd>{{email}}</dd>
             <dt>Spotify URI</dt><dd><a href="{{external_urls.spotify}}">{{external_urls.spotify}}</a></dd>
             <dt>Link</dt><dd><a href="{{href}}">{{href}}</a></dd>
             <dt>Profile Image</dt><dd class="clearfix"><a href="{{images.0.url}}">{{images.0.url}}</a></dd>
-            <dt>Country</dt><dd>{{country}}</dd>
+            <dt>Country</dt><dd>{{country}}</dd> -->
           </dl>
         </div>
       </div>
@@ -120,7 +117,7 @@
       <h4>{{selectedPlaylist}} - {{this.length}} {{pluralTrackCheck this.length}}</h4>
       <ul>
         {{#each this}}
-          <li class="{{#if _spotifyUri}} exported {{/if}}">{{_title}} - {{_artist}} ({{_album}})</li>
+          <li class="{{#if _spotifyUri}} exported {{/if}}{{#if _error}} error {{/if}}{{#if _notFound}} notfound {{/if}}">{{_title}} - {{_artist}} ({{_album}})</li>
         {{/each}}
       </ul>
     </script>
@@ -195,33 +192,23 @@
           var escapedName = name.replace(/([ #;?%&,.+*~\'’:"!^$[\]()=>|\/@])/g, '-');
           return escapedName + '-glyphicon';
         });
+          
+          // render initial screen
+          $('#login').show();
+          $('#loggedin').hide();
 
         if (error) {
           alert('There was an error during the authentication');
         } else {
-          if (access_token) {
-            // store reference to access token for future requests
-            accessToken = access_token;
+          if(params.user_id){
 
-            $.ajax({
-                url: 'https://api.spotify.com/v1/me',
-                headers: {
-                  'Authorization': 'Bearer ' + access_token
-                },
-                success: function(response) {
-                  userProfilePlaceholder.innerHTML = userProfileTemplate(response);
-
-                  // store reference to user for future requests
-                  user = response.id;
-
-                  $('#login').hide();
-                  $('#loggedin').show();
-                }
-            });
-          } else {
-              // render initial screen
-              $('#login').show();
-              $('#loggedin').hide();
+            userProfilePlaceholder.innerHTML = userProfileTemplate({ id: params.user_id, display_name: params.display_name });
+            
+            // store reference to user for future requests
+            user = params.user_id;
+            
+            $('#login').hide();
+            $('#loggedin').show();
           }
 
           document.getElementById('obtain-new-token').addEventListener('click', function() {
@@ -333,7 +320,7 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-      var socket = io.connect('https://itunes-to-spotify-exporter.herokuapp.com');
+      var socket = io.connect('http://127.0.0.1:8888');
 
       socket.on('connect', function () {
         // socket connected - add id to form so we can pass it
