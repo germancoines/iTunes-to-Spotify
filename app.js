@@ -271,14 +271,13 @@ app.post('/:playlist/export', function(req, res) {
 });
 
 
-var nonExportedCsvData = [
-  ['Artist', 'Album', 'Title', 'Error']
-];
+var nonExportedCsvData = [];
 
 function addTracksToPlaylist(trackIds, user, playlistId, playlistName, callback) {
   var searchEndpoint = 'https://api.spotify.com/v1/search?q=';
   
   var tracksToAdd = [];
+  nonExportedCsvData.push(['Artist', 'Album', 'Title', 'Error']);
 
   // use promises so we can wait until all track search requests are complete
   // => allows us to access the calling object i.e. no need for var self = this;
@@ -304,21 +303,24 @@ function addTracksToPlaylist(trackIds, user, playlistId, playlistName, callback)
                 tracksToAdd.push(track._spotifyUri);
               } else {
                 console.log('[NOT FOUND]: Track Id ' + track._id + ', Title ' + track._title);
-                nonExportedCsvData.push([track._artist, track._album, track._title, false]);
+                nonExportedCsvData.push([track._artist, track._album, track._title, '']);
                 track._notFound = true;
               }
             }
 
           } catch {
-            console.log('Error parsing response');
+            var errMsg = 'Error parsing response';
+            console.log(errMsg);
             track._error = true;
-            nonExportedCsvData.push([track._artist, track._album, track._title, true]);
+            nonExportedCsvData.push([track._artist, track._album, track._title, errMsg]);
             // reject('Error parsing response: ' + e);
           }
         } else {
-          console.log('Get Track Error: ', body);
+          var errMsg = 'Get Track Error: ' + body;
+          console.log(errMsg);
           // reject('Get Track Error: ' + body);
           track._error = true;
+          nonExportedCsvData.push([track._artist, track._album, track._title, errMsg]);
         }
 
         resolve(track);
